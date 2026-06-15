@@ -219,6 +219,48 @@ export default function DashboardPage() {
               <p style={{ fontSize: '0.7rem', color: '#9CA3AF', marginTop: '1px' }}>Diseño & Marca</p>
             </div>
           </button>
+
+          {/* Estadísticas */}
+          <button onClick={() => setActiveModule(activeModule === 'stats' ? null : 'stats')} style={{
+            display: 'flex', alignItems: 'center', gap: '0.8rem', padding: '0.8rem 1rem',
+            background: activeModule === 'stats' ? '#FFF7ED' : 'transparent',
+            border: activeModule === 'stats' ? '1.5px solid rgba(251,146,60,0.3)' : '1.5px solid transparent',
+            borderRadius: '12px', cursor: 'pointer', transition: 'all 0.18s', textAlign: 'left', width: '100%',
+          }}
+            onMouseEnter={e => { if (activeModule !== 'stats') (e.currentTarget as HTMLElement).style.background = '#F8F9FC' }}
+            onMouseLeave={e => { if (activeModule !== 'stats') (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+          >
+            <div style={{ width: '36px', height: '36px', borderRadius: '9px', flexShrink: 0, background: activeModule === 'stats' ? 'rgba(251,146,60,0.15)' : '#F3F4F6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={activeModule === 'stats' ? '#F97316' : '#6B7280'} strokeWidth="1.8" strokeLinecap="round">
+                <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
+              </svg>
+            </div>
+            <div>
+              <p style={{ fontSize: '0.875rem', fontWeight: 700, color: activeModule === 'stats' ? '#F97316' : '#0F1132' }}>Estadísticas</p>
+              <p style={{ fontSize: '0.7rem', color: '#9CA3AF', marginTop: '1px' }}>Métricas & Reportes</p>
+            </div>
+          </button>
+
+          {/* Agregar Usuarios */}
+          <button onClick={() => setActiveModule(activeModule === 'users' ? null : 'users')} style={{
+            display: 'flex', alignItems: 'center', gap: '0.8rem', padding: '0.8rem 1rem',
+            background: activeModule === 'users' ? '#FDF4FF' : 'transparent',
+            border: activeModule === 'users' ? '1.5px solid rgba(168,85,247,0.3)' : '1.5px solid transparent',
+            borderRadius: '12px', cursor: 'pointer', transition: 'all 0.18s', textAlign: 'left', width: '100%',
+          }}
+            onMouseEnter={e => { if (activeModule !== 'users') (e.currentTarget as HTMLElement).style.background = '#F8F9FC' }}
+            onMouseLeave={e => { if (activeModule !== 'users') (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+          >
+            <div style={{ width: '36px', height: '36px', borderRadius: '9px', flexShrink: 0, background: activeModule === 'users' ? 'rgba(168,85,247,0.12)' : '#F3F4F6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={activeModule === 'users' ? '#A855F7' : '#6B7280'} strokeWidth="1.8" strokeLinecap="round">
+                <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>
+              </svg>
+            </div>
+            <div>
+              <p style={{ fontSize: '0.875rem', fontWeight: 700, color: activeModule === 'users' ? '#A855F7' : '#0F1132' }}>Agregar Usuarios</p>
+              <p style={{ fontSize: '0.7rem', color: '#9CA3AF', marginTop: '1px' }}>Gestión de accesos</p>
+            </div>
+          </button>
         </div>
 
         <div style={{ flex: 1 }} />
@@ -557,7 +599,80 @@ export default function DashboardPage() {
             )}
           </div>
         )}
+
+        {/* ── ESTADÍSTICAS MODULE ── */}
+        {activeModule === 'stats' && (
+          <div style={{
+            background: '#FFFFFF', border: '1px solid rgba(251,146,60,0.2)',
+            borderRadius: '16px', overflow: 'hidden',
+            boxShadow: '0 2px 16px rgba(251,146,60,0.08)',
+          }}>
+            <div style={{ padding: '2rem', borderBottom: '1px solid #FEF3C7', background: '#FFFBEB', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <div style={{ width: '42px', height: '42px', borderRadius: '11px', background: 'rgba(251,146,60,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F97316" strokeWidth="1.8" strokeLinecap="round">
+                  <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
+                </svg>
+              </div>
+              <div>
+                <h2 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0F1132' }}>Estadísticas</h2>
+                <p style={{ fontSize: '0.75rem', color: '#6B7280' }}>Métricas & Reportes</p>
+              </div>
+            </div>
+            <div style={{ padding: '5rem 2rem', textAlign: 'center' }}>
+              <div style={{ width: '72px', height: '72px', borderRadius: '50%', background: '#FFF7ED', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem' }}>
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#F97316" strokeWidth="1.5" strokeLinecap="round">
+                  <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                </svg>
+              </div>
+              <h3 style={{ fontSize: '1.3rem', fontWeight: 800, color: '#0F1132', marginBottom: '0.5rem', letterSpacing: '-0.02em' }}>Próximamente</h3>
+              <p style={{ color: '#6B7280', fontSize: '0.9rem', maxWidth: '360px', margin: '0 auto', lineHeight: 1.6 }}>
+                Estamos preparando gráficos, métricas y reportes detallados para este módulo.
+              </p>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginTop: '1.5rem', padding: '0.5rem 1rem', background: '#FFF7ED', border: '1px solid rgba(251,146,60,0.25)', borderRadius: '20px' }}>
+                <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#F97316' }} />
+                <span style={{ fontSize: '0.78rem', color: '#F97316', fontWeight: 700 }}>En desarrollo</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── USUARIOS MODULE ── */}
+        {activeModule === 'users' && (
+          <div style={{
+            background: '#FFFFFF', border: '1px solid rgba(168,85,247,0.2)',
+            borderRadius: '16px', overflow: 'hidden',
+            boxShadow: '0 2px 16px rgba(168,85,247,0.08)',
+          }}>
+            <div style={{ padding: '2rem', borderBottom: '1px solid #F3E8FF', background: '#FAF5FF', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <div style={{ width: '42px', height: '42px', borderRadius: '11px', background: 'rgba(168,85,247,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#A855F7" strokeWidth="1.8" strokeLinecap="round">
+                  <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>
+                </svg>
+              </div>
+              <div>
+                <h2 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0F1132' }}>Agregar Usuarios</h2>
+                <p style={{ fontSize: '0.75rem', color: '#6B7280' }}>Gestión de accesos</p>
+              </div>
+            </div>
+            <div style={{ padding: '5rem 2rem', textAlign: 'center' }}>
+              <div style={{ width: '72px', height: '72px', borderRadius: '50%', background: '#FDF4FF', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem' }}>
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#A855F7" strokeWidth="1.5" strokeLinecap="round">
+                  <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                </svg>
+              </div>
+              <h3 style={{ fontSize: '1.3rem', fontWeight: 800, color: '#0F1132', marginBottom: '0.5rem', letterSpacing: '-0.02em' }}>Próximamente</h3>
+              <p style={{ color: '#6B7280', fontSize: '0.9rem', maxWidth: '360px', margin: '0 auto', lineHeight: 1.6 }}>
+                Pronto podrás crear, editar y gestionar los accesos de usuarios al panel.
+              </p>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginTop: '1.5rem', padding: '0.5rem 1rem', background: '#FDF4FF', border: '1px solid rgba(168,85,247,0.25)', borderRadius: '20px' }}>
+                <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#A855F7' }} />
+                <span style={{ fontSize: '0.78rem', color: '#A855F7', fontWeight: 700 }}>En desarrollo</span>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   )
 }
+
