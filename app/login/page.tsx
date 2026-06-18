@@ -19,7 +19,7 @@ export default function LoginPage() {
     try {
       const { data, error: dbError } = await supabase
         .from('user')
-        .select('id, name, email, telefono, dni, password')
+        .select('id, name, email, telefono, dni, password, activo')
         .ilike('email', email.trim())
 
       if (dbError) {
@@ -37,6 +37,12 @@ export default function LoginPage() {
       const user = data[0]
       if (user.password !== password) {
         setError('Correo o contraseña incorrectos.')
+        setLoading(false)
+        return
+      }
+
+      if (user.activo === false) {
+        setError('Tu cuenta ha sido bloqueada. Contacta al administrador.')
         setLoading(false)
         return
       }

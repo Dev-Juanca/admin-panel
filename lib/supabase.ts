@@ -13,4 +13,5 @@ export type User = {
   telefono: number
   dni: number
   password: string
+  activo: boolean
 }

@@ -40,6 +40,31 @@ export default function DashboardPage() {
   const [trazzoError, setTrazzoError] = useState('')
   const [trazzoConfirmDelete, setTrazzoConfirmDelete] = useState<number | null>(null)
 
+  // Users management state
+  const [userRows, setUserRows] = useState<User[]>([])
+  const [usersLoading, setUsersLoading] = useState(false)
+  const [usersError, setUsersError] = useState('')
+  const [userConfirmDelete, setUserConfirmDelete] = useState<number | null>(null)
+  const [userDeletingId, setUserDeletingId] = useState<number | null>(null)
+  const [userTogglingId, setUserTogglingId] = useState<number | null>(null)
+  const [showUserForm, setShowUserForm] = useState(false)
+  const [editingUser, setEditingUser] = useState<User | null>(null)
+  const [formName, setFormName] = useState('')
+  const [formEmail, setFormEmail] = useState('')
+  const [formTelefono, setFormTelefono] = useState('')
+  const [formDni, setFormDni] = useState('')
+  const [formPassword, setFormPassword] = useState('')
+  const [formError, setFormError] = useState('')
+  const [formSaving, setFormSaving] = useState(false)
+
+  // Stats module state
+  const [statsLoading, setStatsLoading] = useState(false)
+  const [statsError, setStatsError] = useState('')
+  const [noahStats, setNoahStats] = useState<NoatechRow[]>([])
+  const [trazzoStats, setTrazzoStats] = useState<NoatechRow[]>([])
+  const [usersCountStats, setUsersCountStats] = useState(0)
+  const [activeUsersStats, setActiveUsersStats] = useState(0)
+
   useEffect(() => {
     const stored = sessionStorage.getItem('admin_user')
     if (!stored) { router.replace('/login'); return }
@@ -86,6 +111,141 @@ export default function DashboardPage() {
     setTrazzoDeletingId(null)
     setTrazzoConfirmDelete(null)
   }
+
+  // ── Users CRUD ──
+  const fetchUsers = useCallback(async () => {
+    setUsersLoading(true)
+    setUsersError('')
+    const { data, error } = await supabase
+      .from('user')
+      .select('id, created_at, name, email, telefono, dni, password, activo')
+      .order('created_at', { ascending: false })
+    if (error) { setUsersError(error.message); setUsersLoading(false); return }
+    setUserRows(data || [])
+    setUsersLoading(false)
+  }, [])
+
+  useEffect(() => {
+    if (activeModule === 'users') fetchUsers()
+  }, [activeModule, fetchUsers])
+
+  const resetForm = () => {
+    setFormName(''); setFormEmail(''); setFormTelefono(''); setFormDni(''); setFormPassword('')
+    setFormError(''); setEditingUser(null); setShowUserForm(false)
+  }
+
+  const openCreateForm = () => {
+    resetForm()
+    setShowUserForm(true)
+  }
+
+  const openEditForm = (u: User) => {
+    setEditingUser(u)
+    setFormName(u.name)
+    setFormEmail(u.email)
+    setFormTelefono(String(u.telefono))
+    setFormDni(String(u.dni))
+    setFormPassword(u.password)
+    setFormError('')
+    setShowUserForm(true)
+  }
+
+  const handleSaveUser = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setFormError('')
+
+    if (!formName.trim() || !formEmail.trim() || !formTelefono.trim() || !formDni.trim() || !formPassword.trim()) {
+      setFormError('Todos los campos son obligatorios.')
+      return
+    }
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailPattern.test(formEmail.trim())) {
+      setFormError('Ingresa un correo válido.')
+      return
+    }
+
+    setFormSaving(true)
+
+    if (editingUser) {
+      const { error } = await supabase
+        .from('user')
+        .update({
+          name: formName.trim(),
+          email: formEmail.toLowerCase().trim(),
+          telefono: Number(formTelefono),
+          dni: Number(formDni),
+          password: formPassword,
+        })
+        .eq('id', editingUser.id)
+
+      if (error) { setFormError(error.message); setFormSaving(false); return }
+    } else {
+      const { error } = await supabase
+        .from('user')
+        .insert({
+          name: formName.trim(),
+          email: formEmail.toLowerCase().trim(),
+          telefono: Number(formTelefono),
+          dni: Number(formDni),
+          password: formPassword,
+          activo: true,
+        })
+
+      if (error) { setFormError(error.message); setFormSaving(false); return }
+    }
+
+    setFormSaving(false)
+    resetForm()
+    fetchUsers()
+  }
+
+  const handleToggleActive = async (u: User) => {
+    setUserTogglingId(u.id)
+    const { error } = await supabase
+      .from('user')
+      .update({ activo: !u.activo })
+      .eq('id', u.id)
+    if (error) { setUsersError(error.message) }
+    else { setUserRows(prev => prev.map(r => r.id === u.id ? { ...r, activo: !r.activo } : r)) }
+    setUserTogglingId(null)
+  }
+
+  const handleDeleteUser = async (id: number) => {
+    setUserDeletingId(id)
+    const { error } = await supabase.from('user').delete().eq('id', id)
+    if (error) { setUsersError(error.message) }
+    else { setUserRows(prev => prev.filter(r => r.id !== id)) }
+    setUserDeletingId(null)
+    setUserConfirmDelete(null)
+  }
+
+  // ── Stats fetch (combines noahtech + tazzo + user) ──
+  const fetchStats = useCallback(async () => {
+    setStatsLoading(true)
+    setStatsError('')
+
+    const [noahRes, trazzoRes, userRes] = await Promise.all([
+      supabase.from('noahtech').select('*'),
+      supabase.from('tazzo').select('*'),
+      supabase.from('user').select('id, activo'),
+    ])
+
+    if (noahRes.error || trazzoRes.error || userRes.error) {
+      setStatsError(noahRes.error?.message || trazzoRes.error?.message || userRes.error?.message || 'Error al cargar estadísticas')
+      setStatsLoading(false)
+      return
+    }
+
+    setNoahStats(noahRes.data || [])
+    setTrazzoStats(trazzoRes.data || [])
+    setUsersCountStats((userRes.data || []).length)
+    setActiveUsersStats((userRes.data || []).filter((u: { activo: boolean }) => u.activo).length)
+    setStatsLoading(false)
+  }, [])
+
+  useEffect(() => {
+    if (activeModule === 'stats') fetchStats()
+  }, [activeModule, fetchStats])
 
   const handleDelete = async (id: number) => {
     setDeletingId(id)
@@ -602,77 +762,447 @@ export default function DashboardPage() {
 
         {/* ── ESTADÍSTICAS MODULE ── */}
         {activeModule === 'stats' && (
-          <div style={{
-            background: '#FFFFFF', border: '1px solid rgba(251,146,60,0.2)',
-            borderRadius: '16px', overflow: 'hidden',
-            boxShadow: '0 2px 16px rgba(251,146,60,0.08)',
-          }}>
-            <div style={{ padding: '2rem', borderBottom: '1px solid #FEF3C7', background: '#FFFBEB', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-              <div style={{ width: '42px', height: '42px', borderRadius: '11px', background: 'rgba(251,146,60,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F97316" strokeWidth="1.8" strokeLinecap="round">
-                  <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                <div style={{ width: '42px', height: '42px', borderRadius: '11px', background: 'rgba(251,146,60,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F97316" strokeWidth="1.8" strokeLinecap="round">
+                    <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
+                  </svg>
+                </div>
+                <div>
+                  <h2 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0F1132' }}>Estadísticas</h2>
+                  <p style={{ fontSize: '0.75rem', color: '#6B7280' }}>Métricas & Reportes generales</p>
+                </div>
+              </div>
+              <button onClick={fetchStats} style={{
+                display: 'flex', alignItems: 'center', gap: '0.4rem',
+                padding: '0.55rem 1rem', background: '#FFF7ED',
+                border: '1px solid rgba(251,146,60,0.25)', borderRadius: '8px',
+                color: '#F97316', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer',
+              }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                  <path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/>
                 </svg>
-              </div>
-              <div>
-                <h2 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0F1132' }}>Estadísticas</h2>
-                <p style={{ fontSize: '0.75rem', color: '#6B7280' }}>Métricas & Reportes</p>
-              </div>
+                Actualizar
+              </button>
             </div>
-            <div style={{ padding: '5rem 2rem', textAlign: 'center' }}>
-              <div style={{ width: '72px', height: '72px', borderRadius: '50%', background: '#FFF7ED', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem' }}>
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#F97316" strokeWidth="1.5" strokeLinecap="round">
-                  <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-                </svg>
+
+            {statsError && (
+              <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '10px', padding: '0.75rem 1rem', marginBottom: '1rem', color: '#DC2626', fontSize: '0.85rem' }}>
+                ⚠️ {statsError}
               </div>
-              <h3 style={{ fontSize: '1.3rem', fontWeight: 800, color: '#0F1132', marginBottom: '0.5rem', letterSpacing: '-0.02em' }}>Próximamente</h3>
-              <p style={{ color: '#6B7280', fontSize: '0.9rem', maxWidth: '360px', margin: '0 auto', lineHeight: 1.6 }}>
-                Estamos preparando gráficos, métricas y reportes detallados para este módulo.
-              </p>
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginTop: '1.5rem', padding: '0.5rem 1rem', background: '#FFF7ED', border: '1px solid rgba(251,146,60,0.25)', borderRadius: '20px' }}>
-                <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#F97316' }} />
-                <span style={{ fontSize: '0.78rem', color: '#F97316', fontWeight: 700 }}>En desarrollo</span>
+            )}
+
+            {statsLoading && (
+              <div style={{ background: '#FFFFFF', borderRadius: '16px', padding: '3rem', textAlign: 'center', boxShadow: '0 2px 12px rgba(0,0,0,0.05)' }}>
+                <div style={{ width: '28px', height: '28px', border: '2.5px solid #F97316', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 0.75rem' }} />
+                <p style={{ color: '#6B7280', fontSize: '0.875rem' }}>Calculando estadísticas...</p>
+                <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
               </div>
-            </div>
+            )}
+
+            {!statsLoading && (() => {
+              const allServices = [...noahStats, ...trazzoStats]
+              const serviceCounts: Record<string, number> = {}
+              allServices.forEach(s => {
+                const key = (s.servicio || 'Sin especificar').trim()
+                serviceCounts[key] = (serviceCounts[key] || 0) + 1
+              })
+              const sortedServices = Object.entries(serviceCounts).sort((a, b) => b[1] - a[1])
+              const maxCount = sortedServices.length > 0 ? sortedServices[0][1] : 0
+              const totalRegistros = allServices.length
+              const topService = sortedServices.length > 0 ? sortedServices[0][0] : 'N/A'
+
+              const noahServiceCounts: Record<string, number> = {}
+              noahStats.forEach(s => {
+                const key = (s.servicio || 'Sin especificar').trim()
+                noahServiceCounts[key] = (noahServiceCounts[key] || 0) + 1
+              })
+              const trazzoServiceCounts: Record<string, number> = {}
+              trazzoStats.forEach(s => {
+                const key = (s.servicio || 'Sin especificar').trim()
+                trazzoServiceCounts[key] = (trazzoServiceCounts[key] || 0) + 1
+              })
+
+              const palette = ['#F97316', '#3B6FFF', '#00B896', '#A855F7', '#EC4899', '#06B6D4', '#EAB308', '#6366F1']
+
+              return (
+                <div>
+                  {/* KPI Cards */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
+                    {[
+                      { label: 'Total de registros', value: String(totalRegistros), color: '#F97316', bg: '#FFF7ED', border: 'rgba(251,146,60,0.18)' },
+                      { label: 'Servicio más popular', value: topService, color: '#3B6FFF', bg: '#EEF2FF', border: 'rgba(59,111,255,0.18)', small: true },
+                      { label: 'Usuarios del panel', value: String(usersCountStats), color: '#A855F7', bg: '#FAF5FF', border: 'rgba(168,85,247,0.18)' },
+                      { label: 'Usuarios activos', value: String(activeUsersStats), color: '#00B896', bg: '#ECFDF8', border: 'rgba(0,184,150,0.18)' },
+                    ].map(stat => (
+                      <div key={stat.label} style={{ background: stat.bg, border: `1px solid ${stat.border}`, borderRadius: '14px', padding: '1.25rem 1.4rem' }}>
+                        <p style={{ fontSize: '0.7rem', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700, marginBottom: '0.5rem' }}>{stat.label}</p>
+                        <p style={{ fontSize: stat.small ? '1.15rem' : '1.5rem', fontWeight: 800, color: stat.color, letterSpacing: '-0.02em', textTransform: stat.small ? 'capitalize' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{stat.value}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Ranking de servicios */}
+                  <div style={{ background: '#FFFFFF', border: '1px solid rgba(0,0,0,0.07)', borderRadius: '16px', padding: '1.75rem', marginBottom: '1.5rem', boxShadow: '0 2px 12px rgba(0,0,0,0.05)' }}>
+                    <h3 style={{ fontSize: '1rem', fontWeight: 800, color: '#0F1132', marginBottom: '0.3rem' }}>Servicios más contratados</h3>
+                    <p style={{ fontSize: '0.78rem', color: '#9CA3AF', marginBottom: '1.5rem' }}>Combinando registros de Noah Tech y Trazzo</p>
+
+                    {sortedServices.length === 0 ? (
+                      <p style={{ color: '#6B7280', fontSize: '0.9rem', textAlign: 'center', padding: '2rem 0' }}>Aún no hay datos suficientes.</p>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
+                        {sortedServices.map(([service, count], idx) => (
+                          <div key={service}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.4rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <span style={{
+                                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                  width: '20px', height: '20px', borderRadius: '50%',
+                                  background: idx === 0 ? '#FEF3C7' : '#F3F4F6',
+                                  color: idx === 0 ? '#B45309' : '#9CA3AF',
+                                  fontSize: '0.7rem', fontWeight: 800,
+                                }}>{idx + 1}</span>
+                                <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0F1132', textTransform: 'capitalize' }}>{service}</span>
+                              </div>
+                              <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#6B7280' }}>{count} contratación{count !== 1 ? 'es' : ''}</span>
+                            </div>
+                            <div style={{ width: '100%', height: '10px', background: '#F3F4F6', borderRadius: '6px', overflow: 'hidden' }}>
+                              <div style={{
+                                height: '100%',
+                                width: `${maxCount > 0 ? (count / maxCount) * 100 : 0}%`,
+                                background: palette[idx % palette.length],
+                                borderRadius: '6px',
+                                transition: 'width 0.4s ease',
+                              }} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Comparativa por módulo */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
+                    {/* Noah Tech breakdown */}
+                    <div style={{ background: '#FFFFFF', border: '1px solid rgba(59,111,255,0.15)', borderRadius: '16px', padding: '1.5rem', boxShadow: '0 2px 12px rgba(59,111,255,0.06)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1rem' }}>
+                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#3B6FFF' }} />
+                        <h4 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0F1132' }}>Noah Tech</h4>
+                        <span style={{ fontSize: '0.78rem', color: '#9CA3AF', marginLeft: 'auto' }}>{noahStats.length} registros</span>
+                      </div>
+                      {Object.keys(noahServiceCounts).length === 0 ? (
+                        <p style={{ color: '#9CA3AF', fontSize: '0.82rem' }}>Sin registros aún.</p>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                          {Object.entries(noahServiceCounts).sort((a, b) => b[1] - a[1]).map(([service, count]) => (
+                            <div key={service} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontSize: '0.82rem', color: '#374151', textTransform: 'capitalize' }}>{service}</span>
+                              <span style={{
+                                fontSize: '0.75rem', fontWeight: 700, color: '#3B6FFF',
+                                background: '#EEF2FF', padding: '0.15rem 0.55rem', borderRadius: '20px',
+                              }}>{count}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Trazzo breakdown */}
+                    <div style={{ background: '#FFFFFF', border: '1px solid rgba(0,184,150,0.15)', borderRadius: '16px', padding: '1.5rem', boxShadow: '0 2px 12px rgba(0,184,150,0.06)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1rem' }}>
+                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#00B896' }} />
+                        <h4 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0F1132' }}>Trazzo</h4>
+                        <span style={{ fontSize: '0.78rem', color: '#9CA3AF', marginLeft: 'auto' }}>{trazzoStats.length} registros</span>
+                      </div>
+                      {Object.keys(trazzoServiceCounts).length === 0 ? (
+                        <p style={{ color: '#9CA3AF', fontSize: '0.82rem' }}>Sin registros aún.</p>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                          {Object.entries(trazzoServiceCounts).sort((a, b) => b[1] - a[1]).map(([service, count]) => (
+                            <div key={service} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontSize: '0.82rem', color: '#374151', textTransform: 'capitalize' }}>{service}</span>
+                              <span style={{
+                                fontSize: '0.75rem', fontWeight: 700, color: '#00B896',
+                                background: '#ECFDF8', padding: '0.15rem 0.55rem', borderRadius: '20px',
+                              }}>{count}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
           </div>
         )}
 
-        {/* ── USUARIOS MODULE ── */}
+        {/* \u2500\u2500 USUARIOS MODULE \u2500\u2500 */}
         {activeModule === 'users' && (
-          <div style={{
-            background: '#FFFFFF', border: '1px solid rgba(168,85,247,0.2)',
-            borderRadius: '16px', overflow: 'hidden',
-            boxShadow: '0 2px 16px rgba(168,85,247,0.08)',
-          }}>
-            <div style={{ padding: '2rem', borderBottom: '1px solid #F3E8FF', background: '#FAF5FF', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-              <div style={{ width: '42px', height: '42px', borderRadius: '11px', background: 'rgba(168,85,247,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#A855F7" strokeWidth="1.8" strokeLinecap="round">
-                  <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>
-                </svg>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                <div style={{ width: '42px', height: '42px', borderRadius: '11px', background: 'rgba(168,85,247,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#A855F7" strokeWidth="1.8" strokeLinecap="round">
+                    <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>
+                  </svg>
+                </div>
+                <div>
+                  <h2 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0F1132' }}>Agregar Usuarios</h2>
+                  <p style={{ fontSize: '0.75rem', color: '#6B7280' }}>Gesti\u00f3n de accesos al panel</p>
+                </div>
               </div>
-              <div>
-                <h2 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0F1132' }}>Agregar Usuarios</h2>
-                <p style={{ fontSize: '0.75rem', color: '#6B7280' }}>Gestión de accesos</p>
+              <div style={{ display: 'flex', gap: '0.6rem' }}>
+                <button onClick={fetchUsers} style={{
+                  display: 'flex', alignItems: 'center', gap: '0.4rem',
+                  padding: '0.55rem 1rem', background: '#FDF4FF',
+                  border: '1px solid rgba(168,85,247,0.2)', borderRadius: '8px',
+                  color: '#A855F7', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer',
+                }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                    <path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/>
+                  </svg>
+                  Actualizar
+                </button>
+                <button onClick={openCreateForm} style={{
+                  display: 'flex', alignItems: 'center', gap: '0.4rem',
+                  padding: '0.55rem 1.1rem', background: 'linear-gradient(135deg, #A855F7, #9333EA)',
+                  border: 'none', borderRadius: '8px',
+                  color: 'white', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer',
+                  boxShadow: '0 3px 12px rgba(168,85,247,0.3)',
+                }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                    <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                  </svg>
+                  Nuevo usuario
+                </button>
               </div>
             </div>
-            <div style={{ padding: '5rem 2rem', textAlign: 'center' }}>
-              <div style={{ width: '72px', height: '72px', borderRadius: '50%', background: '#FDF4FF', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem' }}>
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#A855F7" strokeWidth="1.5" strokeLinecap="round">
-                  <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-                </svg>
+
+            {usersError && (
+              <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '10px', padding: '0.75rem 1rem', marginBottom: '1rem', color: '#DC2626', fontSize: '0.85rem' }}>
+                \u26a0\ufe0f {usersError}
               </div>
-              <h3 style={{ fontSize: '1.3rem', fontWeight: 800, color: '#0F1132', marginBottom: '0.5rem', letterSpacing: '-0.02em' }}>Próximamente</h3>
-              <p style={{ color: '#6B7280', fontSize: '0.9rem', maxWidth: '360px', margin: '0 auto', lineHeight: 1.6 }}>
-                Pronto podrás crear, editar y gestionar los accesos de usuarios al panel.
-              </p>
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginTop: '1.5rem', padding: '0.5rem 1rem', background: '#FDF4FF', border: '1px solid rgba(168,85,247,0.25)', borderRadius: '20px' }}>
-                <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#A855F7' }} />
-                <span style={{ fontSize: '0.78rem', color: '#A855F7', fontWeight: 700 }}>En desarrollo</span>
+            )}
+
+            {/* ── Formulario crear/editar ── */}
+            {showUserForm && (
+              <div style={{
+                background: '#FFFFFF', border: '1.5px solid rgba(168,85,247,0.25)',
+                borderRadius: '16px', padding: '1.75rem', marginBottom: '1.25rem',
+                boxShadow: '0 4px 20px rgba(168,85,247,0.1)',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
+                  <h3 style={{ fontSize: '1rem', fontWeight: 800, color: '#0F1132' }}>
+                    {editingUser ? 'Editar usuario' : 'Nuevo usuario'}
+                  </h3>
+                  <button onClick={resetForm} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#9CA3AF', padding: '0.25rem' }}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                      <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                  </button>
+                </div>
+
+                <form onSubmit={handleSaveUser}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#6B7280', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Nombre completo</label>
+                      <input type="text" value={formName} onChange={e => setFormName(e.target.value)} placeholder="Juan P\u00e9rez"
+                        style={{ width: '100%', padding: '0.65rem 0.9rem', background: '#F8F9FC', border: '1.5px solid #E5E7EB', borderRadius: '9px', color: '#0F1132', fontSize: '0.9rem', outline: 'none' }} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#6B7280', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Correo electr\u00f3nico</label>
+                      <input type="email" value={formEmail} onChange={e => setFormEmail(e.target.value)} placeholder="correo@ejemplo.com"
+                        style={{ width: '100%', padding: '0.65rem 0.9rem', background: '#F8F9FC', border: '1.5px solid #E5E7EB', borderRadius: '9px', color: '#0F1132', fontSize: '0.9rem', outline: 'none' }} />
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem', marginBottom: '1.25rem' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#6B7280', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Tel\u00e9fono</label>
+                      <input type="tel" value={formTelefono} onChange={e => setFormTelefono(e.target.value.replace(/\D/g, ''))} placeholder="987654321"
+                        style={{ width: '100%', padding: '0.65rem 0.9rem', background: '#F8F9FC', border: '1.5px solid #E5E7EB', borderRadius: '9px', color: '#0F1132', fontSize: '0.9rem', outline: 'none' }} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#6B7280', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>DNI</label>
+                      <input type="text" value={formDni} onChange={e => setFormDni(e.target.value.replace(/\D/g, ''))} placeholder="12345678"
+                        style={{ width: '100%', padding: '0.65rem 0.9rem', background: '#F8F9FC', border: '1.5px solid #E5E7EB', borderRadius: '9px', color: '#0F1132', fontSize: '0.9rem', outline: 'none' }} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#6B7280', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Contrase\u00f1a</label>
+                      <input type="text" value={formPassword} onChange={e => setFormPassword(e.target.value)} placeholder="••••••••"
+                        style={{ width: '100%', padding: '0.65rem 0.9rem', background: '#F8F9FC', border: '1.5px solid #E5E7EB', borderRadius: '9px', color: '#0F1132', fontSize: '0.9rem', outline: 'none' }} />
+                    </div>
+                  </div>
+
+                  {formError && (
+                    <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px', padding: '0.6rem 0.85rem', marginBottom: '1rem', color: '#DC2626', fontSize: '0.82rem' }}>
+                      {formError}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: '0.6rem' }}>
+                    <button type="submit" disabled={formSaving} style={{
+                      padding: '0.65rem 1.4rem', background: formSaving ? '#D8B4FE' : 'linear-gradient(135deg, #A855F7, #9333EA)',
+                      border: 'none', borderRadius: '9px', color: 'white', fontWeight: 700, fontSize: '0.85rem',
+                      cursor: formSaving ? 'not-allowed' : 'pointer', boxShadow: formSaving ? 'none' : '0 3px 12px rgba(168,85,247,0.3)',
+                    }}>
+                      {formSaving ? 'Guardando...' : editingUser ? 'Guardar cambios' : 'Crear usuario'}
+                    </button>
+                    <button type="button" onClick={resetForm} style={{
+                      padding: '0.65rem 1.4rem', background: '#F3F4F6', border: 'none',
+                      borderRadius: '9px', color: '#374151', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer',
+                    }}>
+                      Cancelar
+                    </button>
+                  </div>
+                </form>
               </div>
-            </div>
+            )}
+
+            {usersLoading && (
+              <div style={{ background: '#FFFFFF', borderRadius: '16px', padding: '3rem', textAlign: 'center', boxShadow: '0 2px 12px rgba(0,0,0,0.05)' }}>
+                <div style={{ width: '28px', height: '28px', border: '2.5px solid #A855F7', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 0.75rem' }} />
+                <p style={{ color: '#6B7280', fontSize: '0.875rem' }}>Cargando usuarios...</p>
+                <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+              </div>
+            )}
+
+            {!usersLoading && userRows.length === 0 && (
+              <div style={{ background: '#FFFFFF', border: '1px solid rgba(0,0,0,0.07)', borderRadius: '16px', padding: '3rem', textAlign: 'center' }}>
+                <p style={{ color: '#6B7280', fontSize: '0.9rem' }}>No hay usuarios registrados.</p>
+              </div>
+            )}
+
+            {!usersLoading && userRows.length > 0 && (
+              <div style={{ background: '#FFFFFF', border: '1px solid rgba(168,85,247,0.15)', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 2px 16px rgba(168,85,247,0.07)' }}>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+                    <thead>
+                      <tr style={{ background: '#FAF5FF', borderBottom: '1px solid #F3E8FF' }}>
+                        {['ID', 'Nombre', 'Correo', 'Tel\u00e9fono', 'DNI', 'Estado', 'Acciones'].map(col => (
+                          <th key={col} style={{
+                            padding: '0.85rem 1rem', textAlign: 'left',
+                            fontSize: '0.7rem', fontWeight: 700, color: '#9333EA',
+                            textTransform: 'uppercase', letterSpacing: '0.07em', whiteSpace: 'nowrap',
+                          }}>{col}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {userRows.map((u, i) => (
+                        <tr key={u.id} style={{ borderBottom: i < userRows.length - 1 ? '1px solid #F3F4F6' : 'none', transition: 'background 0.15s', opacity: u.activo ? 1 : 0.55 }}
+                          onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#FAF5FF'}
+                          onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
+                        >
+                          <td style={{ padding: '1rem', color: '#9CA3AF', fontFamily: 'monospace', fontSize: '0.8rem' }}>#{u.id}</td>
+                          <td style={{ padding: '1rem', fontWeight: 600, color: '#0F1132', whiteSpace: 'nowrap', textTransform: 'capitalize' }}>{u.name.toLowerCase()}</td>
+                          <td style={{ padding: '1rem', color: '#A855F7' }}>
+                            <a href={`mailto:${u.email}`} style={{ color: '#A855F7', textDecoration: 'none' }}>{u.email}</a>
+                          </td>
+                          <td style={{ padding: '1rem', color: '#374151', fontFamily: 'monospace' }}>{u.telefono}</td>
+                          <td style={{ padding: '1rem', color: '#374151', fontFamily: 'monospace' }}>{u.dni}</td>
+                          <td style={{ padding: '1rem' }}>
+                            <span style={{
+                              display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                              padding: '0.3rem 0.7rem',
+                              background: u.activo ? '#ECFDF8' : '#FEF2F2',
+                              color: u.activo ? '#00B896' : '#DC2626',
+                              borderRadius: '20px', fontSize: '0.74rem', fontWeight: 700,
+                            }}>
+                              <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: u.activo ? '#00B896' : '#DC2626' }} />
+                              {u.activo ? 'Activo' : 'Bloqueado'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '1rem' }}>
+                            {userConfirmDelete === u.id ? (
+                              <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                                <span style={{ fontSize: '0.78rem', color: '#6B7280', marginRight: '0.2rem' }}>¿Eliminar?</span>
+                                <button onClick={() => handleDeleteUser(u.id)} disabled={userDeletingId === u.id} style={{
+                                  padding: '0.35rem 0.7rem', background: '#DC2626', border: 'none',
+                                  borderRadius: '6px', color: 'white', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer',
+                                }}>
+                                  {userDeletingId === u.id ? '...' : 'S\u00ed'}
+                                </button>
+                                <button onClick={() => setUserConfirmDelete(null)} style={{
+                                  padding: '0.35rem 0.7rem', background: '#F3F4F6', border: 'none',
+                                  borderRadius: '6px', color: '#374151', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer',
+                                }}>No</button>
+                              </div>
+                            ) : (
+                              <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                {/* Editar */}
+                                <button onClick={() => openEditForm(u)} title="Editar" style={{
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                  width: '32px', height: '32px',
+                                  background: '#EEF2FF', border: '1px solid rgba(59,111,255,0.2)',
+                                  borderRadius: '8px', color: '#3B6FFF', cursor: 'pointer', transition: 'all 0.15s',
+                                }}
+                                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#3B6FFF'; (e.currentTarget as HTMLElement).style.color = 'white' }}
+                                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#EEF2FF'; (e.currentTarget as HTMLElement).style.color = '#3B6FFF' }}
+                                >
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                                    <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                                  </svg>
+                                </button>
+
+                                {/* Bloquear/Desbloquear */}
+                                <button onClick={() => handleToggleActive(u)} disabled={userTogglingId === u.id} title={u.activo ? 'Bloquear' : 'Desbloquear'} style={{
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                  width: '32px', height: '32px',
+                                  background: u.activo ? '#FFF7ED' : '#ECFDF8',
+                                  border: u.activo ? '1px solid rgba(251,146,60,0.25)' : '1px solid rgba(0,184,150,0.25)',
+                                  borderRadius: '8px', color: u.activo ? '#F97316' : '#00B896',
+                                  cursor: userTogglingId === u.id ? 'not-allowed' : 'pointer', transition: 'all 0.15s',
+                                }}
+                                  onMouseEnter={e => { if (userTogglingId !== u.id) { (e.currentTarget as HTMLElement).style.background = u.activo ? '#F97316' : '#00B896'; (e.currentTarget as HTMLElement).style.color = 'white' } }}
+                                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = u.activo ? '#FFF7ED' : '#ECFDF8'; (e.currentTarget as HTMLElement).style.color = u.activo ? '#F97316' : '#00B896' }}
+                                >
+                                  {u.activo ? (
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                                      <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>
+                                    </svg>
+                                  ) : (
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                                      <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 019.9-1"/>
+                                    </svg>
+                                  )}
+                                </button>
+
+                                {/* Eliminar */}
+                                <button onClick={() => setUserConfirmDelete(u.id)} title="Eliminar" style={{
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                  width: '32px', height: '32px',
+                                  background: '#FEF2F2', border: '1px solid #FECACA',
+                                  borderRadius: '8px', color: '#DC2626', cursor: 'pointer', transition: 'all 0.15s',
+                                }}
+                                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#DC2626'; (e.currentTarget as HTMLElement).style.color = 'white' }}
+                                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#FEF2F2'; (e.currentTarget as HTMLElement).style.color = '#DC2626' }}
+                                >
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                                    <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
+                                  </svg>
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{ padding: '0.85rem 1rem', background: '#FAF5FF', borderTop: '1px solid #F3E8FF', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.78rem', color: '#6B7280', fontWeight: 500 }}>
+                    {userRows.length} usuario{userRows.length !== 1 ? 's' : ''} en total
+                  </span>
+                  <span style={{ fontSize: '0.78rem', color: '#9CA3AF' }}>Tabla: user</span>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>
     </div>
   )
 }
-
