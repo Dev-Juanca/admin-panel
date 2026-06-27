@@ -21,6 +21,20 @@ type NoatechRow = {
   comentario: string
 }
 
+type KanbanCard = {
+  id: number
+  created_at: string
+  cliente_nombre: string
+  cliente_telefono: number
+  servicio: string
+  origen: string
+  origen_id: number
+  estado: string
+  admin_nombre: string | null
+  moved_to_progreso_at: string | null
+  moved_to_hecho_at: string | null
+}
+
 export default function DashboardPage() {
   const router = useRouter()
   const [user, setUser] = useState<User | null>(null)
@@ -64,6 +78,12 @@ export default function DashboardPage() {
   const [trazzoStats, setTrazzoStats] = useState<NoatechRow[]>([])
   const [usersCountStats, setUsersCountStats] = useState(0)
   const [activeUsersStats, setActiveUsersStats] = useState(0)
+
+  // Kanban state
+  const [kanbanCards, setKanbanCards] = useState<KanbanCard[]>([])
+  const [kanbanLoading, setKanbanLoading] = useState(false)
+  const [kanbanError, setKanbanError] = useState('')
+  const [kanbanMovingId, setKanbanMovingId] = useState<number | null>(null)
 
   useEffect(() => {
     const stored = sessionStorage.getItem('admin_user')
@@ -247,6 +267,70 @@ export default function DashboardPage() {
     if (activeModule === 'stats') fetchStats()
   }, [activeModule, fetchStats])
 
+  // ── Kanban fetch + sync ──
+  const fetchKanban = useCallback(async () => {
+    setKanbanLoading(true)
+    setKanbanError('')
+
+    const [noahRes, trazzoRes, kanbanRes] = await Promise.all([
+      supabase.from('noahtech').select('id, nombre, telefono, servicio'),
+      supabase.from('tazzo').select('id, nombre, telefono, servicio'),
+      supabase.from('kanban').select('*').order('created_at', { ascending: true }),
+    ])
+
+    if (noahRes.error || trazzoRes.error || kanbanRes.error) {
+      setKanbanError(noahRes.error?.message || trazzoRes.error?.message || kanbanRes.error?.message || 'Error al cargar kanban')
+      setKanbanLoading(false)
+      return
+    }
+
+    const existing = kanbanRes.data || []
+    const inserts: Omit<KanbanCard, 'id' | 'created_at'>[] = []
+
+    for (const row of (noahRes.data || [])) {
+      if (!existing.find(k => k.origen === 'noahtech' && k.origen_id === row.id)) {
+        inserts.push({ cliente_nombre: row.nombre, cliente_telefono: row.telefono, servicio: row.servicio, origen: 'noahtech', origen_id: row.id, estado: 'por_hacer', admin_nombre: null, moved_to_progreso_at: null, moved_to_hecho_at: null })
+      }
+    }
+    for (const row of (trazzoRes.data || [])) {
+      if (!existing.find(k => k.origen === 'tazzo' && k.origen_id === row.id)) {
+        inserts.push({ cliente_nombre: row.nombre, cliente_telefono: row.telefono, servicio: row.servicio, origen: 'tazzo', origen_id: row.id, estado: 'por_hacer', admin_nombre: null, moved_to_progreso_at: null, moved_to_hecho_at: null })
+      }
+    }
+
+    if (inserts.length > 0) {
+      await supabase.from('kanban').insert(inserts)
+    }
+
+    const { data: refreshed } = await supabase.from('kanban').select('*').order('created_at', { ascending: true })
+    setKanbanCards(refreshed || [])
+    setKanbanLoading(false)
+  }, [])
+
+  useEffect(() => {
+    if (activeModule === 'kanban') fetchKanban()
+  }, [activeModule, fetchKanban])
+
+  const handleKanbanAdvance = async (card: KanbanCard) => {
+    if (!user) return
+    const now = new Date().toISOString()
+    setKanbanMovingId(card.id)
+
+    let updates: Partial<KanbanCard> = {}
+    if (card.estado === 'por_hacer') {
+      updates = { estado: 'en_progreso', admin_nombre: user.name, moved_to_progreso_at: now }
+    } else if (card.estado === 'en_progreso') {
+      updates = { estado: 'hecho', moved_to_hecho_at: now }
+    }
+
+    const { error } = await supabase.from('kanban').update(updates).eq('id', card.id)
+    if (error) { setKanbanError(error.message) }
+    else {
+      setKanbanCards(prev => prev.map(c => c.id === card.id ? { ...c, ...updates } : c))
+    }
+    setKanbanMovingId(null)
+  }
+
   const handleDelete = async (id: number) => {
     setDeletingId(id)
     const { error } = await supabase.from('noahtech').delete().eq('id', id)
@@ -419,6 +503,27 @@ export default function DashboardPage() {
             <div>
               <p style={{ fontSize: '0.875rem', fontWeight: 700, color: activeModule === 'users' ? '#A855F7' : '#0F1132' }}>Agregar Usuarios</p>
               <p style={{ fontSize: '0.7rem', color: '#9CA3AF', marginTop: '1px' }}>Gestión de accesos</p>
+            </div>
+          </button>
+
+          {/* Kanban */}
+          <button onClick={() => setActiveModule(activeModule === 'kanban' ? null : 'kanban')} style={{
+            display: 'flex', alignItems: 'center', gap: '0.8rem', padding: '0.8rem 1rem',
+            background: activeModule === 'kanban' ? '#FFF0F9' : 'transparent',
+            border: activeModule === 'kanban' ? '1.5px solid rgba(236,72,153,0.3)' : '1.5px solid transparent',
+            borderRadius: '12px', cursor: 'pointer', transition: 'all 0.18s', textAlign: 'left', width: '100%',
+          }}
+            onMouseEnter={e => { if (activeModule !== 'kanban') (e.currentTarget as HTMLElement).style.background = '#F8F9FC' }}
+            onMouseLeave={e => { if (activeModule !== 'kanban') (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+          >
+            <div style={{ width: '36px', height: '36px', borderRadius: '9px', flexShrink: 0, background: activeModule === 'kanban' ? 'rgba(236,72,153,0.12)' : '#F3F4F6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={activeModule === 'kanban' ? '#EC4899' : '#6B7280'} strokeWidth="1.8" strokeLinecap="round">
+                <rect x="3" y="3" width="5" height="18" rx="1"/><rect x="10" y="3" width="5" height="12" rx="1"/><rect x="17" y="3" width="5" height="8" rx="1"/>
+              </svg>
+            </div>
+            <div>
+              <p style={{ fontSize: '0.875rem', fontWeight: 700, color: activeModule === 'kanban' ? '#EC4899' : '#0F1132' }}>Kanban</p>
+              <p style={{ fontSize: '0.7rem', color: '#9CA3AF', marginTop: '1px' }}>Seguimiento de clientes</p>
             </div>
           </button>
         </div>
@@ -1200,6 +1305,197 @@ export default function DashboardPage() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* ── KANBAN MODULE ── */}
+        {activeModule === 'kanban' && (
+          <div>
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                <div style={{ width: '42px', height: '42px', borderRadius: '11px', background: 'rgba(236,72,153,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#EC4899" strokeWidth="1.8" strokeLinecap="round">
+                    <rect x="3" y="3" width="5" height="18" rx="1"/><rect x="10" y="3" width="5" height="12" rx="1"/><rect x="17" y="3" width="5" height="8" rx="1"/>
+                  </svg>
+                </div>
+                <div>
+                  <h2 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0F1132' }}>Kanban</h2>
+                  <p style={{ fontSize: '0.75rem', color: '#6B7280' }}>Seguimiento de clientes Noah Tech & Trazzo</p>
+                </div>
+              </div>
+              <button onClick={fetchKanban} style={{
+                display: 'flex', alignItems: 'center', gap: '0.4rem',
+                padding: '0.55rem 1rem', background: '#FFF0F9',
+                border: '1px solid rgba(236,72,153,0.2)', borderRadius: '8px',
+                color: '#EC4899', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer',
+              }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                  <path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/>
+                </svg>
+                Sincronizar
+              </button>
+            </div>
+
+            {kanbanError && (
+              <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '10px', padding: '0.75rem 1rem', marginBottom: '1rem', color: '#DC2626', fontSize: '0.85rem' }}>
+                ⚠️ {kanbanError}
+              </div>
+            )}
+
+            {kanbanLoading && (
+              <div style={{ background: '#FFFFFF', borderRadius: '16px', padding: '3rem', textAlign: 'center', boxShadow: '0 2px 12px rgba(0,0,0,0.05)' }}>
+                <div style={{ width: '28px', height: '28px', border: '2.5px solid #EC4899', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 0.75rem' }} />
+                <p style={{ color: '#6B7280', fontSize: '0.875rem' }}>Sincronizando clientes...</p>
+                <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+              </div>
+            )}
+
+            {!kanbanLoading && (() => {
+              const porHacer   = kanbanCards.filter(c => c.estado === 'por_hacer')
+              const enProgreso = kanbanCards.filter(c => c.estado === 'en_progreso')
+              const hecho      = kanbanCards.filter(c => c.estado === 'hecho')
+
+              const formatDT = (iso: string | null) => {
+                if (!iso) return '—'
+                const d = new Date(iso)
+                return d.toLocaleDateString('es-PE', { day: '2-digit', month: 'short' }) + ' ' +
+                       d.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })
+              }
+
+              const columns = [
+                { key: 'por_hacer',   label: 'Por hacer',   cards: porHacer,   color: '#6B7280', bg: '#F8F9FC', border: '#E5E7EB', btnColor: '#3B6FFF', btnBg: '#EEF2FF', btnLabel: 'Mover a En progreso' },
+                { key: 'en_progreso', label: 'En progreso', cards: enProgreso, color: '#F97316', bg: '#FFF7ED', border: '#FED7AA', btnColor: '#00B896', btnBg: '#ECFDF8', btnLabel: 'Mover a Hecho' },
+                { key: 'hecho',       label: 'Hecho',       cards: hecho,      color: '#00B896', bg: '#ECFDF8', border: '#A7F3D0', btnColor: null,      btnBg: null,      btnLabel: null },
+              ]
+
+              return (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.25rem', alignItems: 'start' }}>
+                  {columns.map(col => (
+                    <div key={col.key}>
+                      {/* Column header */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.85rem', padding: '0 0.25rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: col.color }} />
+                          <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0F1132' }}>{col.label}</span>
+                        </div>
+                        <span style={{
+                          fontSize: '0.72rem', fontWeight: 700,
+                          background: col.bg, color: col.color,
+                          border: `1px solid ${col.border}`,
+                          padding: '0.15rem 0.55rem', borderRadius: '20px',
+                        }}>{col.cards.length}</span>
+                      </div>
+
+                      {/* Cards */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                        {col.cards.length === 0 && (
+                          <div style={{ background: '#FFFFFF', border: `1.5px dashed ${col.border}`, borderRadius: '14px', padding: '2rem 1rem', textAlign: 'center' }}>
+                            <p style={{ color: '#D1D5DB', fontSize: '0.8rem', fontWeight: 600 }}>Sin tarjetas</p>
+                          </div>
+                        )}
+                        {col.cards.map(card => (
+                          <div key={card.id} style={{
+                            background: '#FFFFFF',
+                            border: `1px solid ${col.border}`,
+                            borderRadius: '14px',
+                            padding: '1.1rem',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
+                            transition: 'box-shadow 0.2s',
+                          }}
+                            onMouseEnter={e => (e.currentTarget as HTMLElement).style.boxShadow = '0 6px 20px rgba(0,0,0,0.09)'}
+                            onMouseLeave={e => (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 8px rgba(0,0,0,0.05)'}
+                          >
+                            {/* Origen badge */}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                              <span style={{
+                                fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
+                                padding: '0.2rem 0.55rem', borderRadius: '20px',
+                                background: card.origen === 'noahtech' ? '#EEF2FF' : '#ECFDF8',
+                                color: card.origen === 'noahtech' ? '#3B6FFF' : '#00B896',
+                              }}>
+                                {card.origen === 'noahtech' ? 'Noah Tech' : 'Trazzo'}
+                              </span>
+                              <span style={{ fontSize: '0.68rem', color: '#D1D5DB' }}>#{card.id}</span>
+                            </div>
+
+                            {/* Client info */}
+                            <p style={{ fontSize: '0.92rem', fontWeight: 700, color: '#0F1132', marginBottom: '0.25rem', textTransform: 'capitalize' }}>
+                              {card.cliente_nombre.toLowerCase()}
+                            </p>
+                            <p style={{ fontSize: '0.78rem', color: '#6B7280', marginBottom: '0.2rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81a19.79 19.79 0 01-3.07-8.67A2 2 0 012 .18h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
+                              {card.cliente_telefono}
+                            </p>
+                            <div style={{ marginBottom: '0.85rem' }}>
+                              <span style={{
+                                fontSize: '0.72rem', fontWeight: 700,
+                                background: '#F3F4F6', color: '#374151',
+                                padding: '0.2rem 0.55rem', borderRadius: '20px',
+                              }}>{card.servicio}</span>
+                            </div>
+
+                            {/* Extra info for en_progreso & hecho */}
+                            {(col.key === 'en_progreso' || col.key === 'hecho') && (
+                              <div style={{ background: '#F8F9FC', borderRadius: '8px', padding: '0.6rem 0.75rem', marginBottom: '0.85rem', fontSize: '0.73rem', color: '#6B7280' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: col.key === 'hecho' ? '0.3rem' : '0' }}>
+                                  <span>🕐 En progreso</span>
+                                  <span style={{ fontWeight: 600, color: '#374151' }}>{formatDT(card.moved_to_progreso_at)}</span>
+                                </div>
+                                {col.key === 'hecho' && (
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem' }}>
+                                    <span>✅ Completado</span>
+                                    <span style={{ fontWeight: 600, color: '#374151' }}>{formatDT(card.moved_to_hecho_at)}</span>
+                                  </div>
+                                )}
+                                {card.admin_nombre && (
+                                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                    <span>👤 Admin</span>
+                                    <span style={{ fontWeight: 600, color: '#374151', textTransform: 'capitalize' }}>{card.admin_nombre.toLowerCase()}</span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Advance button */}
+                            {col.btnLabel && (
+                              <button
+                                onClick={() => handleKanbanAdvance(card)}
+                                disabled={kanbanMovingId === card.id}
+                                style={{
+                                  width: '100%', padding: '0.55rem',
+                                  background: kanbanMovingId === card.id ? '#F3F4F6' : col.btnBg!,
+                                  border: `1px solid ${col.border}`,
+                                  borderRadius: '8px', color: kanbanMovingId === card.id ? '#9CA3AF' : col.btnColor!,
+                                  fontSize: '0.75rem', fontWeight: 700,
+                                  cursor: kanbanMovingId === card.id ? 'not-allowed' : 'pointer',
+                                  transition: 'all 0.15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem',
+                                }}
+                              >
+                                {kanbanMovingId === card.id ? 'Moviendo...' : (
+                                  <>
+                                    {col.btnLabel}
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                                      <path d="M5 12h14M12 5l7 7-7 7"/>
+                                    </svg>
+                                  </>
+                                )}
+                              </button>
+                            )}
+
+                            {col.key === 'hecho' && (
+                              <div style={{ textAlign: 'center', padding: '0.4rem 0', fontSize: '0.75rem', color: '#00B896', fontWeight: 700 }}>
+                                ✓ Completado
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )
+            })()}
           </div>
         )}
       </main>
