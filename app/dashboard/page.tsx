@@ -21,6 +21,29 @@ type NoatechRow = {
   comentario: string
 }
 
+type LogRow = {
+  id: number
+  created_at: string
+  tipo: string
+  accion: string
+  descripcion: string
+  admin_nombre: string
+  modulo: string
+  resultado: string
+}
+
+type DemoRequest = {
+  id: string
+  created_at: string
+  nombre: string
+  colegio: string
+  email: string
+  telefono: string | null
+  estudiantes: string
+  mensaje: string | null
+  atendido: boolean
+}
+
 type KanbanCard = {
   id: number
   created_at: string
@@ -48,11 +71,11 @@ export default function DashboardPage() {
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null)
 
   // Trazzo table state
-  const [trazzoRows, setTrazzoRows] = useState<NoatechRow[]>([])
+  const [trazzoRows, setTrazzoRows] = useState<DemoRequest[]>([])
   const [trazzoLoading, setTrazzoLoading] = useState(false)
-  const [trazzoDeletingId, setTrazzoDeletingId] = useState<number | null>(null)
+  const [trazzoDeletingId, setTrazzoDeletingId] = useState<string | null>(null)
   const [trazzoError, setTrazzoError] = useState('')
-  const [trazzoConfirmDelete, setTrazzoConfirmDelete] = useState<number | null>(null)
+  const [trazzoConfirmDelete, setTrazzoConfirmDelete] = useState<string | null>(null)
 
   // Users management state
   const [userRows, setUserRows] = useState<User[]>([])
@@ -85,6 +108,12 @@ export default function DashboardPage() {
   const [kanbanError, setKanbanError] = useState('')
   const [kanbanMovingId, setKanbanMovingId] = useState<number | null>(null)
 
+  // Logs state
+  const [logRows, setLogRows] = useState<LogRow[]>([])
+  const [logsLoading, setLogsLoading] = useState(false)
+  const [logsError, setLogsError] = useState('')
+  const [logsFilter, setLogsFilter] = useState<'todos' | 'accion' | 'error'>('todos')
+
   useEffect(() => {
     const stored = sessionStorage.getItem('admin_user')
     if (!stored) { router.replace('/login'); return }
@@ -111,7 +140,7 @@ export default function DashboardPage() {
     setTrazzoLoading(true)
     setTrazzoError('')
     const { data, error } = await supabase
-      .from('tazzo')
+      .from('demo_requests')
       .select('*')
       .order('created_at', { ascending: false })
     if (error) { setTrazzoError(error.message); setTrazzoLoading(false); return }
@@ -123,11 +152,17 @@ export default function DashboardPage() {
     if (activeModule === 'trazzo') fetchTrazzo()
   }, [activeModule, fetchTrazzo])
 
-  const handleDeleteTrazzo = async (id: number) => {
+  const handleDeleteTrazzo = async (id: string) => {
     setTrazzoDeletingId(id)
-    const { error } = await supabase.from('tazzo').delete().eq('id', id)
-    if (error) { setTrazzoError(error.message) }
-    else { setTrazzoRows(prev => prev.filter(r => r.id !== id)) }
+    const row = trazzoRows.find(r => r.id === id)
+    const { error } = await supabase.from('demo_requests').delete().eq('id', id)
+    if (error) {
+      setTrazzoError(error.message)
+      await registerLog({ tipo: 'error', accion: 'Eliminó solicitud demo', descripcion: `Error al eliminar solicitud de "${row?.nombre}": ${error.message}`, admin_nombre: user?.name || 'Desconocido', modulo: 'trazzo', resultado: 'error' })
+    } else {
+      setTrazzoRows(prev => prev.filter(r => r.id !== id))
+      await registerLog({ tipo: 'accion', accion: 'Eliminó solicitud demo', descripcion: `Eliminó solicitud de "${row?.nombre}" (${row?.colegio})`, admin_nombre: user?.name || 'Desconocido', modulo: 'trazzo', resultado: 'éxito' })
+    }
     setTrazzoDeletingId(null)
     setTrazzoConfirmDelete(null)
   }
@@ -215,26 +250,48 @@ export default function DashboardPage() {
     }
 
     setFormSaving(false)
+    await registerLog({
+      tipo: 'accion',
+      accion: editingUser ? 'Editó usuario' : 'Creó usuario',
+      descripcion: editingUser
+        ? `Editó los datos de "${formName.trim()}" (${formEmail.trim()})`
+        : `Creó nuevo usuario "${formName.trim()}" (${formEmail.trim()})`,
+      admin_nombre: user?.name || 'Desconocido',
+      modulo: 'usuarios',
+      resultado: 'éxito'
+    })
     resetForm()
     fetchUsers()
   }
 
   const handleToggleActive = async (u: User) => {
     setUserTogglingId(u.id)
+    const nuevoEstado = !u.activo
     const { error } = await supabase
       .from('user')
-      .update({ activo: !u.activo })
+      .update({ activo: nuevoEstado })
       .eq('id', u.id)
-    if (error) { setUsersError(error.message) }
-    else { setUserRows(prev => prev.map(r => r.id === u.id ? { ...r, activo: !r.activo } : r)) }
+    if (error) {
+      setUsersError(error.message)
+      await registerLog({ tipo: 'error', accion: nuevoEstado ? 'Desbloqueó usuario' : 'Bloqueó usuario', descripcion: `Error al cambiar estado de "${u.name}": ${error.message}`, admin_nombre: user?.name || 'Desconocido', modulo: 'usuarios', resultado: 'error' })
+    } else {
+      setUserRows(prev => prev.map(r => r.id === u.id ? { ...r, activo: nuevoEstado } : r))
+      await registerLog({ tipo: 'accion', accion: nuevoEstado ? 'Desbloqueó usuario' : 'Bloqueó usuario', descripcion: `${nuevoEstado ? 'Desbloqueó' : 'Bloqueó'} al usuario "${u.name}" (${u.email})`, admin_nombre: user?.name || 'Desconocido', modulo: 'usuarios', resultado: 'éxito' })
+    }
     setUserTogglingId(null)
   }
 
   const handleDeleteUser = async (id: number) => {
     setUserDeletingId(id)
+    const u = userRows.find(r => r.id === id)
     const { error } = await supabase.from('user').delete().eq('id', id)
-    if (error) { setUsersError(error.message) }
-    else { setUserRows(prev => prev.filter(r => r.id !== id)) }
+    if (error) {
+      setUsersError(error.message)
+      await registerLog({ tipo: 'error', accion: 'Eliminó usuario', descripcion: `Error al eliminar usuario ID ${id}: ${error.message}`, admin_nombre: user?.name || 'Desconocido', modulo: 'usuarios', resultado: 'error' })
+    } else {
+      setUserRows(prev => prev.filter(r => r.id !== id))
+      await registerLog({ tipo: 'accion', accion: 'Eliminó usuario', descripcion: `Eliminó al usuario "${u?.name}" (${u?.email})`, admin_nombre: user?.name || 'Desconocido', modulo: 'usuarios', resultado: 'éxito' })
+    }
     setUserDeletingId(null)
     setUserConfirmDelete(null)
   }
@@ -324,18 +381,56 @@ export default function DashboardPage() {
     }
 
     const { error } = await supabase.from('kanban').update(updates).eq('id', card.id)
-    if (error) { setKanbanError(error.message) }
-    else {
+    if (error) {
+      setKanbanError(error.message)
+      await registerLog({ tipo: 'error', accion: 'Movió tarjeta Kanban', descripcion: `Error al mover a "${updates.estado}" al cliente "${card.cliente_nombre}": ${error.message}`, admin_nombre: user?.name || 'Desconocido', modulo: 'kanban', resultado: 'error' })
+    } else {
       setKanbanCards(prev => prev.map(c => c.id === card.id ? { ...c, ...updates } : c))
+      await registerLog({ tipo: 'accion', accion: 'Movió tarjeta Kanban', descripcion: `Movió a "${updates.estado?.replace('_', ' ')}" al cliente "${card.cliente_nombre}" (${card.origen === 'noahtech' ? 'Noah Tech' : 'Trazzo'})`, admin_nombre: user?.name || 'Desconocido', modulo: 'kanban', resultado: 'éxito' })
     }
     setKanbanMovingId(null)
   }
 
+  // ── Log helpers ──
+  const registerLog = useCallback(async (params: {
+    tipo: 'accion' | 'error'
+    accion: string
+    descripcion: string
+    admin_nombre: string
+    modulo: string
+    resultado: 'éxito' | 'error'
+  }) => {
+    await supabase.from('logs').insert(params)
+  }, [])
+
+  const fetchLogs = useCallback(async () => {
+    setLogsLoading(true)
+    setLogsError('')
+    const { data, error } = await supabase
+      .from('logs')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(200)
+    if (error) { setLogsError(error.message); setLogsLoading(false); return }
+    setLogRows(data || [])
+    setLogsLoading(false)
+  }, [])
+
+  useEffect(() => {
+    if (activeModule === 'logs') fetchLogs()
+  }, [activeModule, fetchLogs])
+
   const handleDelete = async (id: number) => {
     setDeletingId(id)
+    const row = rows.find(r => r.id === id)
     const { error } = await supabase.from('noahtech').delete().eq('id', id)
-    if (error) { setTableError(error.message) }
-    else { setRows(prev => prev.filter(r => r.id !== id)) }
+    if (error) {
+      setTableError(error.message)
+      await registerLog({ tipo: 'error', accion: 'Eliminó registro Noah Tech', descripcion: `Error al eliminar cliente ID ${id}: ${error.message}`, admin_nombre: user?.name || 'Desconocido', modulo: 'noah_tech', resultado: 'error' })
+    } else {
+      setRows(prev => prev.filter(r => r.id !== id))
+      await registerLog({ tipo: 'accion', accion: 'Eliminó registro Noah Tech', descripcion: `Eliminó cliente "${row?.nombre}" (ID ${id})`, admin_nombre: user?.name || 'Desconocido', modulo: 'noah_tech', resultado: 'éxito' })
+    }
     setDeletingId(null)
     setConfirmDelete(null)
   }
@@ -524,6 +619,27 @@ export default function DashboardPage() {
             <div>
               <p style={{ fontSize: '0.875rem', fontWeight: 700, color: activeModule === 'kanban' ? '#EC4899' : '#0F1132' }}>Kanban</p>
               <p style={{ fontSize: '0.7rem', color: '#9CA3AF', marginTop: '1px' }}>Seguimiento de clientes</p>
+            </div>
+          </button>
+
+          {/* Logs */}
+          <button onClick={() => setActiveModule(activeModule === 'logs' ? null : 'logs')} style={{
+            display: 'flex', alignItems: 'center', gap: '0.8rem', padding: '0.8rem 1rem',
+            background: activeModule === 'logs' ? '#F0FDF4' : 'transparent',
+            border: activeModule === 'logs' ? '1.5px solid rgba(34,197,94,0.3)' : '1.5px solid transparent',
+            borderRadius: '12px', cursor: 'pointer', transition: 'all 0.18s', textAlign: 'left', width: '100%',
+          }}
+            onMouseEnter={e => { if (activeModule !== 'logs') (e.currentTarget as HTMLElement).style.background = '#F8F9FC' }}
+            onMouseLeave={e => { if (activeModule !== 'logs') (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+          >
+            <div style={{ width: '36px', height: '36px', borderRadius: '9px', flexShrink: 0, background: activeModule === 'logs' ? 'rgba(34,197,94,0.12)' : '#F3F4F6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={activeModule === 'logs' ? '#22C55E' : '#6B7280'} strokeWidth="1.8" strokeLinecap="round">
+                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
+              </svg>
+            </div>
+            <div>
+              <p style={{ fontSize: '0.875rem', fontWeight: 700, color: activeModule === 'logs' ? '#22C55E' : '#0F1132' }}>Logs</p>
+              <p style={{ fontSize: '0.7rem', color: '#9CA3AF', marginTop: '1px' }}>Historial de actividad</p>
             </div>
           </button>
         </div>
@@ -782,12 +898,8 @@ export default function DashboardPage() {
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
                     <thead>
                       <tr style={{ background: '#F0FBF8', borderBottom: '1px solid #D1FAF0' }}>
-                        {['ID', 'Nombre', 'Correo', 'Teléfono', 'Servicio', 'Comentario', 'Fecha', 'Acción'].map(col => (
-                          <th key={col} style={{
-                            padding: '0.85rem 1rem', textAlign: 'left',
-                            fontSize: '0.7rem', fontWeight: 700, color: '#059669',
-                            textTransform: 'uppercase', letterSpacing: '0.07em', whiteSpace: 'nowrap',
-                          }}>{col}</th>
+                        {['Nombre', 'Colegio', 'Email', 'Teléfono', 'Estudiantes', 'Mensaje', 'Estado', 'Fecha', 'Acción'].map(col => (
+                          <th key={col} style={{ padding: '0.85rem 1rem', textAlign: 'left', fontSize: '0.7rem', fontWeight: 700, color: '#059669', textTransform: 'uppercase', letterSpacing: '0.07em', whiteSpace: 'nowrap' }}>{col}</th>
                         ))}
                       </tr>
                     </thead>
@@ -797,47 +909,47 @@ export default function DashboardPage() {
                           onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#F0FBF8'}
                           onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
                         >
-                          <td style={{ padding: '1rem', color: '#9CA3AF', fontFamily: 'monospace', fontSize: '0.8rem' }}>#{row.id}</td>
                           <td style={{ padding: '1rem', fontWeight: 600, color: '#0F1132', whiteSpace: 'nowrap' }}>{row.nombre}</td>
-                          <td style={{ padding: '1rem', color: '#00B896' }}>
-                            <a href={`mailto:${row.correo}`} style={{ color: '#00B896', textDecoration: 'none' }}>{row.correo}</a>
+                          <td style={{ padding: '1rem', color: '#374151', whiteSpace: 'nowrap' }}>{row.colegio}</td>
+                          <td style={{ padding: '1rem' }}>
+                            <a href={`mailto:${row.email}`} style={{ color: '#00B896', textDecoration: 'none' }}>{row.email}</a>
                           </td>
-                          <td style={{ padding: '1rem', color: '#374151', fontFamily: 'monospace' }}>{row.telefono}</td>
+                          <td style={{ padding: '1rem', color: '#374151', fontFamily: 'monospace' }}>{row.telefono || '—'}</td>
+                          <td style={{ padding: '1rem' }}>
+                            <span style={{ display: 'inline-block', padding: '0.25rem 0.65rem', background: '#EEF2FF', color: '#3B6FFF', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 700 }}>
+                              {row.estudiantes}
+                            </span>
+                          </td>
+                          <td style={{ padding: '1rem', color: '#6B7280', maxWidth: '180px' }}>
+                            <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.mensaje || ''}>
+                              {row.mensaje || '—'}
+                            </span>
+                          </td>
                           <td style={{ padding: '1rem' }}>
                             <span style={{
-                              display: 'inline-block', padding: '0.25rem 0.65rem',
-                              background: '#ECFDF8', color: '#00B896',
-                              borderRadius: '20px', fontSize: '0.75rem', fontWeight: 700,
-                            }}>{row.servicio}</span>
-                          </td>
-                          <td style={{ padding: '1rem', color: '#6B7280', maxWidth: '200px' }}>
-                            <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.comentario}>
-                              {row.comentario}
+                              display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                              padding: '0.25rem 0.65rem', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 700,
+                              background: row.atendido ? '#ECFDF8' : '#FFF7ED',
+                              color: row.atendido ? '#00B896' : '#F97316',
+                            }}>
+                              <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: row.atendido ? '#00B896' : '#F97316' }} />
+                              {row.atendido ? 'Atendido' : 'Pendiente'}
                             </span>
                           </td>
                           <td style={{ padding: '1rem', color: '#9CA3AF', whiteSpace: 'nowrap', fontSize: '0.8rem' }}>{formatDate(row.created_at)}</td>
                           <td style={{ padding: '1rem' }}>
                             {trazzoConfirmDelete === row.id ? (
                               <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-                                <button onClick={() => handleDeleteTrazzo(row.id)} disabled={trazzoDeletingId === row.id} style={{
-                                  padding: '0.35rem 0.7rem', background: '#DC2626', border: 'none',
-                                  borderRadius: '6px', color: 'white', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer',
-                                }}>
+                                <button onClick={() => handleDeleteTrazzo(row.id)} disabled={trazzoDeletingId === row.id} style={{ padding: '0.35rem 0.7rem', background: '#DC2626', border: 'none', borderRadius: '6px', color: 'white', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>
                                   {trazzoDeletingId === row.id ? '...' : 'Sí'}
                                 </button>
-                                <button onClick={() => setTrazzoConfirmDelete(null)} style={{
-                                  padding: '0.35rem 0.7rem', background: '#F3F4F6', border: 'none',
-                                  borderRadius: '6px', color: '#374151', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer',
-                                }}>No</button>
+                                <button onClick={() => setTrazzoConfirmDelete(null)} style={{ padding: '0.35rem 0.7rem', background: '#F3F4F6', border: 'none', borderRadius: '6px', color: '#374151', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>No</button>
                               </div>
                             ) : (
                               <button onClick={() => setTrazzoConfirmDelete(row.id)} style={{
-                                display: 'flex', alignItems: 'center', gap: '0.35rem',
-                                padding: '0.45rem 0.75rem',
-                                background: '#FEF2F2', border: '1px solid #FECACA',
-                                borderRadius: '8px', color: '#DC2626',
-                                fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer',
-                                transition: 'all 0.15s', whiteSpace: 'nowrap',
+                                display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.45rem 0.75rem',
+                                background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px', color: '#DC2626',
+                                fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s', whiteSpace: 'nowrap',
                               }}
                                 onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#DC2626'; (e.currentTarget as HTMLElement).style.color = 'white' }}
                                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#FEF2F2'; (e.currentTarget as HTMLElement).style.color = '#DC2626' }}
@@ -856,9 +968,9 @@ export default function DashboardPage() {
                 </div>
                 <div style={{ padding: '0.85rem 1rem', background: '#F0FBF8', borderTop: '1px solid #D1FAF0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: '0.78rem', color: '#6B7280', fontWeight: 500 }}>
-                    {trazzoRows.length} registro{trazzoRows.length !== 1 ? 's' : ''} en total
+                    {trazzoRows.length} solicitud{trazzoRows.length !== 1 ? 'es' : ''} en total · {trazzoRows.filter(r => !r.atendido).length} pendiente{trazzoRows.filter(r => !r.atendido).length !== 1 ? 's' : ''}
                   </span>
-                  <span style={{ fontSize: '0.78rem', color: '#9CA3AF' }}>Tabla: tazzo</span>
+                  <span style={{ fontSize: '0.78rem', color: '#9CA3AF' }}>Tabla: demo_requests</span>
                 </div>
               </div>
             )}
@@ -1498,7 +1610,172 @@ export default function DashboardPage() {
             })()}
           </div>
         )}
+
+        {/* ── LOGS MODULE ── */}
+        {activeModule === 'logs' && (
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                <div style={{ width: '42px', height: '42px', borderRadius: '11px', background: 'rgba(34,197,94,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22C55E" strokeWidth="1.8" strokeLinecap="round">
+                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+                  </svg>
+                </div>
+                <div>
+                  <h2 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0F1132' }}>Logs del Sistema</h2>
+                  <p style={{ fontSize: '0.75rem', color: '#6B7280' }}>Historial de acciones y errores</p>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                {/* Filtros */}
+                {(['todos', 'accion', 'error'] as const).map(f => (
+                  <button key={f} onClick={() => setLogsFilter(f)} style={{
+                    padding: '0.45rem 0.9rem', borderRadius: '8px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s',
+                    background: logsFilter === f ? (f === 'error' ? '#DC2626' : f === 'accion' ? '#3B6FFF' : '#0F1132') : '#F3F4F6',
+                    color: logsFilter === f ? 'white' : '#6B7280',
+                    border: 'none',
+                  }}>
+                    {f === 'todos' ? 'Todos' : f === 'accion' ? '✓ Acciones' : '⚠ Errores'}
+                  </button>
+                ))}
+                <button onClick={fetchLogs} style={{
+                  display: 'flex', alignItems: 'center', gap: '0.4rem',
+                  padding: '0.45rem 0.9rem', background: '#F0FDF4',
+                  border: '1px solid rgba(34,197,94,0.2)', borderRadius: '8px',
+                  color: '#22C55E', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer',
+                }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                    <path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/>
+                  </svg>
+                  Actualizar
+                </button>
+              </div>
+            </div>
+
+            {logsError && (
+              <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '10px', padding: '0.75rem 1rem', marginBottom: '1rem', color: '#DC2626', fontSize: '0.85rem' }}>
+                ⚠️ {logsError}
+              </div>
+            )}
+
+            {logsLoading && (
+              <div style={{ background: '#FFFFFF', borderRadius: '16px', padding: '3rem', textAlign: 'center', boxShadow: '0 2px 12px rgba(0,0,0,0.05)' }}>
+                <div style={{ width: '28px', height: '28px', border: '2.5px solid #22C55E', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 0.75rem' }} />
+                <p style={{ color: '#6B7280', fontSize: '0.875rem' }}>Cargando logs...</p>
+                <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+              </div>
+            )}
+
+            {!logsLoading && (() => {
+              const filtered = logsFilter === 'todos' ? logRows : logRows.filter(l => l.tipo === logsFilter)
+              const totalAcciones = logRows.filter(l => l.tipo === 'accion').length
+              const totalErrores = logRows.filter(l => l.tipo === 'error').length
+
+              const moduloColor: Record<string, string> = {
+                noah_tech: '#3B6FFF', trazzo: '#00B896', usuarios: '#A855F7',
+                kanban: '#EC4899', login: '#F97316', logs: '#22C55E',
+              }
+              const moduloLabel: Record<string, string> = {
+                noah_tech: 'Noah Tech', trazzo: 'Trazzo', usuarios: 'Usuarios',
+                kanban: 'Kanban', login: 'Login', logs: 'Logs',
+              }
+
+              const formatDT = (iso: string) => {
+                const d = new Date(iso)
+                return d.toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' }) + ' ' +
+                       d.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+              }
+
+              return (
+                <div>
+                  {/* KPI row */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.25rem' }}>
+                    {[
+                      { label: 'Total de eventos', value: String(logRows.length), color: '#0F1132', bg: '#F8F9FC', border: '#E5E7EB' },
+                      { label: 'Acciones exitosas', value: String(totalAcciones), color: '#22C55E', bg: '#F0FDF4', border: 'rgba(34,197,94,0.18)' },
+                      { label: 'Errores registrados', value: String(totalErrores), color: '#DC2626', bg: '#FEF2F2', border: '#FECACA' },
+                    ].map(s => (
+                      <div key={s.label} style={{ background: s.bg, border: `1px solid ${s.border}`, borderRadius: '14px', padding: '1.1rem 1.4rem' }}>
+                        <p style={{ fontSize: '0.7rem', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700, marginBottom: '0.4rem' }}>{s.label}</p>
+                        <p style={{ fontSize: '1.5rem', fontWeight: 800, color: s.color, letterSpacing: '-0.02em' }}>{s.value}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {filtered.length === 0 && (
+                    <div style={{ background: '#FFFFFF', border: '1px solid rgba(0,0,0,0.07)', borderRadius: '16px', padding: '3rem', textAlign: 'center' }}>
+                      <p style={{ color: '#6B7280', fontSize: '0.9rem' }}>No hay eventos registrados aún.</p>
+                      <p style={{ color: '#9CA3AF', fontSize: '0.8rem', marginTop: '0.35rem' }}>Las acciones que realices en el panel aparecerán aquí.</p>
+                    </div>
+                  )}
+
+                  {filtered.length > 0 && (
+                    <div style={{ background: '#FFFFFF', border: '1px solid rgba(0,0,0,0.07)', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 2px 16px rgba(0,0,0,0.05)' }}>
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                          <thead>
+                            <tr style={{ background: '#F8F9FC', borderBottom: '1px solid #E5E7EB' }}>
+                              {['Fecha y hora', 'Tipo', 'Módulo', 'Acción', 'Descripción', 'Admin', 'Resultado'].map(col => (
+                                <th key={col} style={{ padding: '0.85rem 1rem', textAlign: 'left', fontSize: '0.68rem', fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.07em', whiteSpace: 'nowrap' }}>{col}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filtered.map((log, i) => (
+                              <tr key={log.id}
+                                style={{ borderBottom: i < filtered.length - 1 ? '1px solid #F3F4F6' : 'none', transition: 'background 0.15s' }}
+                                onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#FAFBFF'}
+                                onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
+                              >
+                                <td style={{ padding: '0.85rem 1rem', color: '#6B7280', fontSize: '0.78rem', whiteSpace: 'nowrap', fontFamily: 'monospace' }}>{formatDT(log.created_at)}</td>
+                                <td style={{ padding: '0.85rem 1rem' }}>
+                                  <span style={{
+                                    display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                                    padding: '0.2rem 0.6rem', borderRadius: '20px', fontSize: '0.72rem', fontWeight: 700,
+                                    background: log.tipo === 'error' ? '#FEF2F2' : '#F0FDF4',
+                                    color: log.tipo === 'error' ? '#DC2626' : '#16A34A',
+                                  }}>
+                                    {log.tipo === 'error' ? '⚠' : '✓'} {log.tipo}
+                                  </span>
+                                </td>
+                                <td style={{ padding: '0.85rem 1rem' }}>
+                                  <span style={{
+                                    display: 'inline-block', padding: '0.2rem 0.6rem', borderRadius: '20px', fontSize: '0.72rem', fontWeight: 700,
+                                    background: moduloColor[log.modulo] ? moduloColor[log.modulo] + '18' : '#F3F4F6',
+                                    color: moduloColor[log.modulo] || '#6B7280',
+                                  }}>{moduloLabel[log.modulo] || log.modulo}</span>
+                                </td>
+                                <td style={{ padding: '0.85rem 1rem', fontWeight: 600, color: '#0F1132', whiteSpace: 'nowrap' }}>{log.accion}</td>
+                                <td style={{ padding: '0.85rem 1rem', color: '#6B7280', maxWidth: '260px' }}>
+                                  <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={log.descripcion}>{log.descripcion}</span>
+                                </td>
+                                <td style={{ padding: '0.85rem 1rem', color: '#374151', whiteSpace: 'nowrap', textTransform: 'capitalize', fontWeight: 500 }}>{log.admin_nombre?.toLowerCase()}</td>
+                                <td style={{ padding: '0.85rem 1rem' }}>
+                                  <span style={{
+                                    display: 'inline-block', padding: '0.2rem 0.6rem', borderRadius: '20px', fontSize: '0.72rem', fontWeight: 700,
+                                    background: log.resultado === 'éxito' ? '#F0FDF4' : '#FEF2F2',
+                                    color: log.resultado === 'éxito' ? '#16A34A' : '#DC2626',
+                                  }}>{log.resultado}</span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div style={{ padding: '0.85rem 1rem', background: '#F8F9FC', borderTop: '1px solid #E5E7EB', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.78rem', color: '#9CA3AF' }}>{filtered.length} evento{filtered.length !== 1 ? 's' : ''} {logsFilter !== 'todos' ? `(filtro: ${logsFilter})` : ''}</span>
+                        <span style={{ fontSize: '0.78rem', color: '#9CA3AF' }}>Últimos 200 registros</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
+          </div>
+        )}
       </main>
     </div>
   )
 }
+
+

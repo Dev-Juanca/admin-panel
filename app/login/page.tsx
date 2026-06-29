@@ -49,6 +49,19 @@ export default function LoginPage() {
 
       const { password: _pwd, ...safeUser } = user
       sessionStorage.setItem('admin_user', JSON.stringify(safeUser))
+
+      // Registrar log de inicio de sesión
+      const { createClient } = await import('@supabase/supabase-js')
+      const sb = createClient('https://hrlxefaateuseotgnogw.supabase.co', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhybHhlZmFhdGV1c2VvdGdub2d3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEzMzgxMzIsImV4cCI6MjA5NjkxNDEzMn0.d-mPJM9UZAnuaXmLt10G353j5mH8Q6-7-YHfOKy4zXM')
+      await sb.from('logs').insert({
+        tipo: 'accion',
+        accion: 'Inicio de sesión',
+        descripcion: `El usuario "${safeUser.name}" inició sesión correctamente`,
+        admin_nombre: safeUser.name,
+        modulo: 'login',
+        resultado: 'éxito'
+      })
+
       router.push('/dashboard')
     } catch (err) {
       console.error(err)
@@ -219,3 +232,4 @@ export default function LoginPage() {
     </div>
   )
 }
+
